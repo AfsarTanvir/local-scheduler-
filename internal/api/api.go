@@ -4,6 +4,7 @@
 package api
 
 import (
+	_ "embed"
 	"encoding/json"
 	"net/http"
 	"time"
@@ -12,6 +13,11 @@ import (
 	"github.com/AfsarTanvir/local-scheduler-/internal/scheduler"
 	"github.com/AfsarTanvir/local-scheduler-/internal/store"
 )
+
+// openAPISpec describes the whole API. It is compiled into the binary.
+//
+//go:embed openapi.yaml
+var openAPISpec []byte
 
 // maxBodyBytes limits the size of a request body.
 const maxBodyBytes = 1 << 20 // 1 MB
@@ -30,6 +36,7 @@ func New(st *store.Store, sched *scheduler.Scheduler, allowShell bool) *Server {
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", s.health)
+	mux.HandleFunc("GET /openapi.yaml", s.openAPI)
 	mux.HandleFunc("POST /jobs", s.createJob)
 	mux.HandleFunc("GET /jobs", s.listJobs)
 	mux.HandleFunc("GET /jobs/{id}", s.getJob)
@@ -42,6 +49,13 @@ func (s *Server) Handler() http.Handler {
 
 func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// openAPI serves the API description. Tools like Swagger UI, Postman or
+// OpenAPI Generator can read it to show docs or generate clients.
+func (s *Server) openAPI(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/yaml")
+	w.Write(openAPISpec)
 }
 
 func (s *Server) createJob(w http.ResponseWriter, r *http.Request) {

@@ -1,0 +1,266 @@
+openapi: 3.0.3
+info:
+  title: local-scheduler
+  version: 0.1.0
+  description: |
+    Schedule jobs that call a URL (or run a shell command) at a given time,
+    once or repeatedly. Any language that can send HTTP requests can use it.
+
+    All times are RFC 3339, returned in UTC. Errors always look like
+    `{"error": {"code": "...", "message": "..."}}`.
+servers:
+  - url: http://localhost:8080
+
+# No authentication yet (roadmap Step 7 adds an API key).
+security: []
+
+paths:
+  /health:
+    get:
+      operationId: health
+      summary: Check that the service is up
+      responses:
+        "200":
+          description: Service is up
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: ok }
+
+  /jobs:
+    post:
+      operationId: createJob
+      summary: Create a job
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/JobSpec" }
+            examples:
+              repeating-http:
+                summary: Call a URL every day at 02:00 Dhaka time
+                value:
+                  name: backup-database
+                  schedule: "0 2 * * *"
+                  timezone: Asia/Dhaka
+                  type: http
+                  http:
+                    url: http://my-app:5000/backup
+                    method: POST
+                    headers: { Authorization: Bearer my-token }
+                    body: '{"db":"main"}'
+              one-time-http:
+                summary: Call a URL once at a given time
+                value:
+                  name: send-reminder
+                  runAt: "2026-10-04T09:00:00Z"
+                  type: http
+                  http: { url: "http://my-app:5000/remind", method: POST }
+              shell:
+                summary: Run a command every 5 minutes (needs ALLOW_SHELL_JOBS=true)
+                value:
+                  name: cleanup
+                  schedule: "*/5 * * * *"
+                  type: shell
+                  shell: { command: "rm -f /tmp/cache/*" }
+      responses:
+        "201":
+          description: Job created
+          headers:
+            Location: { schema: { type: string }, description: URL of the new job }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Job" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+    get:
+      operationId: listJobs
+      summary: List all jobs, oldest first
+      responses:
+        "200":
+          description: All jobs
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Job" }
+
+  /jobs/{id}:
+    parameters:
+      - $ref: "#/components/parameters/JobID"
+    get:
+      operationId: getJob
+      summary: Get a job, including its last run result
+      responses:
+        "200":
+          description: The job
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Job" }
+        "404": { $ref: "#/components/responses/Error" }
+    delete:
+      operationId: deleteJob
+      summary: Delete a job
+      responses:
+        "204": { description: Deleted }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /jobs/{id}/run:
+    parameters:
+      - $ref: "#/components/parameters/JobID"
+    post:
+      operationId: runJob
+      summary: Run a job now, outside its schedule
+      description: The run happens in the background. Poll GET /jobs/{id} to see lastRun.
+      responses:
+        "202":
+          description: Run started
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Job" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+
+  /jobs/{id}/pause:
+    parameters:
+      - $ref: "#/components/parameters/JobID"
+    post:
+      operationId: pauseJob
+      summary: Pause a job (a run in progress finishes normally)
+      responses:
+        "200":
+          description: Paused
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Job" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /jobs/{id}/resume:
+    parameters:
+      - $ref: "#/components/parameters/JobID"
+    post:
+      operationId: resumeJob
+      summary: Resume a paused job
+      description: Repeating jobs continue from now; runs missed while paused are skipped.
+      responses:
+        "200":
+          description: Resumed
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Job" }
+        "404": { $ref: "#/components/responses/Error" }
+
+components:
+  parameters:
+    JobID:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, example: 9f2c4e1a7b3d5f60 }
+
+  responses:
+    Error:
+      description: Error
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+
+  schemas:
+    JobSpec:
+      type: object
+      description: |
+        Set exactly one of `schedule` (repeats) or `runAt` (runs once).
+        Unknown fields are rejected with `invalid_json`, so typos are caught.
+      required: [name, type]
+      properties:
+        name: { type: string, example: backup-database }
+        schedule:
+          type: string
+          description: |
+            Cron expression with 5 fields (minute hour day month weekday),
+            or a shortcut like `@daily`, `@hourly`, `@every 10m`.
+          example: "0 2 * * *"
+        runAt:
+          type: string
+          format: date-time
+          description: Run once at this time. If it is in the past, the job runs right away.
+          example: "2026-10-04T02:00:00Z"
+        timezone:
+          type: string
+          default: UTC
+          description: IANA timezone used to read `schedule`.
+          example: Asia/Dhaka
+        type:
+          type: string
+          enum: [http, shell]
+        http: { $ref: "#/components/schemas/HTTPTarget" }
+        shell: { $ref: "#/components/schemas/ShellTarget" }
+        timeoutSeconds:
+          type: integer
+          minimum: 0
+          maximum: 3600
+          default: 30
+          description: Maximum duration of one run. 0 means the default.
+
+    HTTPTarget:
+      type: object
+      required: [url]
+      description: Required when type is http. Any 2xx response is a success.
+      properties:
+        url: { type: string, format: uri, example: "http://my-app:5000/backup" }
+        method:
+          type: string
+          enum: [GET, POST, PUT, PATCH, DELETE, HEAD]
+          default: GET
+        headers:
+          type: object
+          additionalProperties: { type: string }
+        body: { type: string }
+
+    ShellTarget:
+      type: object
+      required: [command]
+      description: |
+        Required when type is shell. Runs with `sh -c` (Linux/macOS) or `cmd /C` (Windows).
+        A non-zero exit code is a failure. Only allowed when the server runs with
+        ALLOW_SHELL_JOBS=true.
+      properties:
+        command: { type: string, example: "echo hello" }
+
+    Run:
+      type: object
+      properties:
+        startedAt: { type: string, format: date-time }
+        finishedAt: { type: string, format: date-time }
+        status: { type: string, enum: [success, failed] }
+        output: { type: string, description: First 4 KB of the response body or command output }
+        error: { type: string }
+
+    Job:
+      allOf:
+        - $ref: "#/components/schemas/JobSpec"
+        - type: object
+          properties:
+            id: { type: string, example: 9f2c4e1a7b3d5f60 }
+            enabled: { type: boolean, description: false while paused }
+            running: { type: boolean, description: true while a run is in progress }
+            nextRunAt:
+              type: string
+              format: date-time
+              description: Missing when nothing is left to run (a one-time job that already ran).
+            lastRun: { $ref: "#/components/schemas/Run" }
+            createdAt: { type: string, format: date-time }
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+              enum: [invalid_json, invalid_job, shell_disabled, not_found, already_running, shutting_down, internal]
+            message: { type: string }

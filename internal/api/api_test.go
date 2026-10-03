@@ -68,6 +68,13 @@ func TestHealth(t *testing.T) {
 	}
 }
 
+func TestOpenAPISpec(t *testing.T) {
+	rec := do(t, newTestServer(t), "GET", "/openapi.yaml", "")
+	if rec.Code != http.StatusOK || !strings.HasPrefix(rec.Body.String(), "openapi: 3") {
+		t.Fatalf("got %d %.40s", rec.Code, rec.Body)
+	}
+}
+
 func TestCreateGetListDelete(t *testing.T) {
 	h := newTestServer(t)
 
