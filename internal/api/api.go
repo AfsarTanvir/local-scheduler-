@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/AfsarTanvir/local-scheduler-/internal/job"
+	"github.com/AfsarTanvir/local-scheduler-/internal/scheduler"
 	"github.com/AfsarTanvir/local-scheduler-/internal/store"
 )
 
@@ -17,11 +18,12 @@ const maxBodyBytes = 1 << 20 // 1 MB
 
 type Server struct {
 	store      *store.Store
+	sched      *scheduler.Scheduler
 	allowShell bool // shell jobs run commands on this machine, so they are opt-in
 }
 
-func New(st *store.Store, allowShell bool) *Server {
-	return &Server{store: st, allowShell: allowShell}
+func New(st *store.Store, sched *scheduler.Scheduler, allowShell bool) *Server {
+	return &Server{store: st, sched: sched, allowShell: allowShell}
 }
 
 // Handler returns all routes. Method and {id} patterns need Go 1.22+.
@@ -32,6 +34,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /jobs", s.listJobs)
 	mux.HandleFunc("GET /jobs/{id}", s.getJob)
 	mux.HandleFunc("DELETE /jobs/{id}", s.deleteJob)
+	mux.HandleFunc("POST /jobs/{id}/run", s.runJob)
+	mux.HandleFunc("POST /jobs/{id}/pause", s.pauseJob)
+	mux.HandleFunc("POST /jobs/{id}/resume", s.resumeJob)
 	return mux
 }
 
@@ -84,4 +89,33 @@ func (s *Server) deleteJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// runJob starts a job now. The run happens in the background, so the
+// response is 202 Accepted; poll GET /jobs/{id} to see lastRun.
+func (s *Server) runJob(w http.ResponseWriter, r *http.Request) {
+	j, err := s.sched.RunNow(r.PathValue("id"))
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, j)
+}
+
+func (s *Server) pauseJob(w http.ResponseWriter, r *http.Request) {
+	j, err := s.sched.Pause(r.PathValue("id"))
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, j)
+}
+
+func (s *Server) resumeJob(w http.ResponseWriter, r *http.Request) {
+	j, err := s.sched.Resume(r.PathValue("id"))
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, j)
 }

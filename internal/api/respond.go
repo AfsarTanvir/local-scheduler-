@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/AfsarTanvir/local-scheduler-/internal/scheduler"
 	"github.com/AfsarTanvir/local-scheduler-/internal/store"
 )
 
@@ -24,11 +25,15 @@ func writeError(w http.ResponseWriter, status int, code, message string) {
 	})
 }
 
-// writeStoreError turns an error from the store into an HTTP error.
+// writeStoreError turns an error from the store or scheduler into an HTTP error.
 func writeStoreError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, store.ErrNotFound):
 		writeError(w, http.StatusNotFound, "not_found", err.Error())
+	case errors.Is(err, scheduler.ErrAlreadyRunning):
+		writeError(w, http.StatusConflict, "already_running", err.Error())
+	case errors.Is(err, scheduler.ErrStopped):
+		writeError(w, http.StatusServiceUnavailable, "shutting_down", err.Error())
 	default:
 		writeError(w, http.StatusInternalServerError, "internal", err.Error())
 	}
