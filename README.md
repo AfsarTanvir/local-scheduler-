@@ -4,10 +4,10 @@ A small, self-hosted job scheduler with an HTTP API.
 Tell it **when** (a cron schedule or a one-time date) and **what** (call a URL or run a command), and it does it.
 
 - Works with **any language**: everything goes through a plain HTTP + JSON API.
-- **One binary, no dependencies**: no database or Redis needed to start.
+- **One binary, no dependencies**: the database (SQLite) is built in; no server to install.
 - Runs on **Linux, macOS and Windows**, with or without Docker.
 
-> Status: early (roadmap Step 1). Jobs are kept in memory, so they are lost on restart. See [ROADMAP.md](ROADMAP.md).
+> Status: early (roadmap Step 2 done). Jobs and run history are saved in SQLite. See [ROADMAP.md](ROADMAP.md).
 
 ## How it works
 
@@ -16,7 +16,7 @@ Tell it **when** (a cron schedule or a one-time date) and **what** (call a URL o
           │  POST /jobs  {"schedule": "0 2 * * *", "http": {"url": ...}}
           ▼
  ┌──────────────────┐     ┌─────────────┐
- │   HTTP API       │────▶│    Store    │  jobs + their state
+ │   HTTP API       │────▶│    Store    │  SQLite: jobs + run history
  └──────────────────┘     └──────┬──────┘
                                  │ every second: "which jobs are due?"
                           ┌──────┴──────┐
@@ -31,7 +31,7 @@ Tell it **when** (a cron schedule or a one-time date) and **what** (call a URL o
 1. You create a job with a `schedule` (repeats) or a `runAt` (runs once).
 2. The scheduler computes `nextRunAt`.
 3. Every second it starts jobs whose `nextRunAt` has passed, and moves `nextRunAt` forward.
-4. The result (status, output, error) is saved as `lastRun` on the job.
+4. Each run is recorded in the history; the latest result is also shown as `lastRun` on the job.
 
 ## Quick start
 
@@ -39,13 +39,30 @@ Tell it **when** (a cron schedule or a one-time date) and **what** (call a URL o
 
 ```bash
 docker build -t local-scheduler .
-docker run -p 8080:8080 local-scheduler
+docker run -p 8080:8080 -v scheduler-data:/app/data local-scheduler
 ```
 
-**With Go** (1.22 or newer)
+The volume keeps jobs and history when the container is removed. With Docker Compose:
+
+```yaml
+services:
+  scheduler:
+    build: .
+    ports:
+      - "8080:8080"
+    volumes:
+      - scheduler-data:/app/data
+    # environment:
+    #   ALLOW_SHELL_JOBS: "true"
+
+volumes:
+  scheduler-data:
+```
+
+**With Go** (1.26 or newer)
 
 ```bash
-go run ./cmd/local-scheduler
+go run ./cmd/local-scheduler     # database file: data/scheduler.db
 ```
 
 Check it is up:
@@ -99,7 +116,8 @@ curl -X POST localhost:8080/jobs -d '{
 **See the result**
 
 ```bash
-curl localhost:8080/jobs/<id>
+curl localhost:8080/jobs/<id>          # the job, with its latest run
+curl localhost:8080/jobs/<id>/runs     # run history, newest first
 ```
 
 ```json
@@ -144,6 +162,7 @@ print(job["id"], job["nextRunAt"])
 | `POST` | `/jobs` | Create a job |
 | `GET` | `/jobs` | List jobs |
 | `GET` | `/jobs/{id}` | Get a job and its last run |
+| `GET` | `/jobs/{id}/runs?limit=20` | Run history, newest first (100 kept per job) |
 | `DELETE` | `/jobs/{id}` | Delete a job |
 | `POST` | `/jobs/{id}/run` | Run now (in the background) |
 | `POST` | `/jobs/{id}/pause` | Pause |
@@ -176,6 +195,8 @@ The full description is in [internal/api/openapi.yaml](internal/api/openapi.yaml
 - **No overlap:** if a job is still running when its next run is due, that run is skipped.
 - **Missed runs** (paused, machine asleep) turn into one catch-up run, then the normal schedule continues.
 - **Shutdown** (`Ctrl+C` / `docker stop`): no new runs start; running jobs get 30 seconds to finish.
+- **Crash** (`kill -9`, power loss): on the next start, runs that were in progress are marked `failed`
+  ("interrupted") and are not repeated. Their jobs continue with the next scheduled run.
 
 Why these rules: [docs/decisions/](docs/decisions/).
 
@@ -184,6 +205,7 @@ Why these rules: [docs/decisions/](docs/decisions/).
 | Environment variable | Default | Description |
 |---|---|---|
 | `PORT` | `8080` | HTTP port |
+| `DB_PATH` | `data/scheduler.db` (`/app/data/scheduler.db` in Docker) | SQLite database file. Created if missing |
 | `ALLOW_SHELL_JOBS` | `false` | Set to `true` to allow shell jobs. They run commands on this machine, so only enable this when the API is not reachable by others |
 
 ## Project structure
@@ -191,7 +213,7 @@ Why these rules: [docs/decisions/](docs/decisions/).
 ```text
 cmd/local-scheduler/   main.go: reads config, wires everything, handles shutdown
 internal/job/          what a job is: model, validation, next-run calculation
-internal/store/        in-memory job storage (mutex-protected map)
+internal/store/        SQLite storage: jobs, run history, migrations, crash recovery
 internal/scheduler/    the loop that starts due jobs
 internal/runner/       executes one run: HTTP request or shell command
 internal/api/          HTTP handlers and the OpenAPI spec

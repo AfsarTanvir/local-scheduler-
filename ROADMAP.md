@@ -80,19 +80,21 @@ Don't start a step until the previous step's "Done when" is true.
 ## Step 2 — Persistence (1–2 weeks) → `v0.2`
 
 **Research questions**
-- What tables do I need? (`jobs`, `executions`)
+- What tables do I need? (`jobs`, `runs`)
 - How do I handle DB migrations?
 - At-least-once vs at-most-once: which one do I want?
 
 **Build**
-- [ ] SQLite storage first (file in `/app/data`)
-- [ ] `executions` table: `job_id`, `started_at`, `finished_at`, `status`, `output`, `error`
-- [ ] `GET /jobs/{id}/executions` (history)
-- [ ] Load jobs from DB on startup
-- [ ] Add PostgreSQL as an **option** (behind the same storage interface), used only when `DATABASE_URL` is set
-- [ ] SQLite stays the default, so a plain `docker run` still needs nothing else
+- [x] SQLite storage (`DB_PATH`, `/app/data` volume in Docker), pure-Go driver
+- [x] Schema migrations (`PRAGMA user_version`)
+- [x] `runs` table: `job_id`, `started_at`, `finished_at`, `status`, `output`, `error` (newest 100 per job kept)
+- [x] `GET /jobs/{id}/runs` (history)
+- [x] Load jobs from DB on startup
+- [x] Crash recovery: runs left `running` are marked failed (pulled forward from Step 3)
+- [x] SQLite is the default, so a plain `docker run` still needs nothing else
+- PostgreSQL moved to Step 6: it is only needed when several instances share one database
 
-**Done when:** restarting the container keeps all jobs and history, and scheduling continues, with both SQLite and PostgreSQL.
+**Done when:** restarting the container keeps all jobs and history, and scheduling continues. ✅
 
 ---
 
@@ -106,8 +108,10 @@ Don't start a step until the previous step's "Done when" is true.
 
 **Build**
 - [ ] Per-job settings: `retries`, `backoff`, `timeoutSeconds`, `misfirePolicy`, `allowConcurrent`
-- [ ] Mark executions stuck in `running` after a crash as `failed` / `abandoned`
-- [ ] Decision notes: `misfire-policy.md`, `crash-recovery.md`
+- [x] Mark runs stuck in `running` after a crash as `failed` (done in Step 2)
+- [x] Decision note: `005-crash-recovery.md`
+- [ ] Decision note: `misfire-policy.md`
+- [ ] Option to re-run interrupted runs for idempotent jobs
 
 **Done when:** a test kills the scheduler mid-run, and the behavior matches the written policy.
 
@@ -154,6 +158,7 @@ Don't start a step until the previous step's "Done when" is true.
 - Clock skew between machines
 
 **Build**
+- [ ] Extract a `Store` interface; add PostgreSQL (used when `DATABASE_URL` is set), SQLite stays the default
 - [ ] 2+ scheduler instances, no duplicate runs
 - [ ] Failover when the leader dies
 
