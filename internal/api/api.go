@@ -78,14 +78,22 @@ func (s *Server) createJob(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_job", err.Error())
 		return
 	}
-	s.store.Add(j)
+	if err := s.store.Add(j); err != nil {
+		writeStoreError(w, err)
+		return
+	}
 
 	w.Header().Set("Location", "/jobs/"+j.ID)
 	writeJSON(w, http.StatusCreated, j)
 }
 
 func (s *Server) listJobs(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, s.store.List())
+	jobs, err := s.store.List()
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, jobs)
 }
 
 func (s *Server) getJob(w http.ResponseWriter, r *http.Request) {

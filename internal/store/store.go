@@ -29,10 +29,11 @@ func New() *Store {
 }
 
 // Add saves a new job.
-func (s *Store) Add(j job.Job) {
+func (s *Store) Add(j job.Job) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.jobs[j.ID] = j
+	return nil
 }
 
 // Get returns the job with the given id.
@@ -48,7 +49,7 @@ func (s *Store) Get(id string) (job.Job, error) {
 
 // List returns all jobs, oldest first. It never returns nil,
 // so an empty list is encoded as [] in JSON.
-func (s *Store) List() []job.Job {
+func (s *Store) List() ([]job.Job, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	list := make([]job.Job, 0, len(s.jobs))
@@ -58,7 +59,7 @@ func (s *Store) List() []job.Job {
 	slices.SortFunc(list, func(a, b job.Job) int {
 		return cmp.Or(a.CreatedAt.Compare(b.CreatedAt), cmp.Compare(a.ID, b.ID))
 	})
-	return list
+	return list, nil
 }
 
 // Delete removes the job with the given id.

@@ -82,7 +82,12 @@ func (s *Scheduler) tick(now time.Time) {
 		return
 	}
 
-	for _, j := range s.store.List() {
+	jobs, err := s.store.List()
+	if err != nil {
+		slog.Error("list jobs failed", "err", err)
+		return
+	}
+	for _, j := range jobs {
 		if !isDue(j, now) {
 			continue
 		}

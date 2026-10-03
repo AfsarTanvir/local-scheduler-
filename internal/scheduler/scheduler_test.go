@@ -55,7 +55,9 @@ func addJob(t *testing.T, st *store.Store, now time.Time, schedule string, runAt
 	if err != nil {
 		t.Fatal(err)
 	}
-	st.Add(j)
+	if err := st.Add(j); err != nil {
+		t.Fatal(err)
+	}
 	return j
 }
 

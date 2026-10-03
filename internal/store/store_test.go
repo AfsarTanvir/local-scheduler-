@@ -10,7 +10,7 @@ import (
 
 func TestAddGetListDelete(t *testing.T) {
 	s := New()
-	if list := s.List(); list == nil || len(list) != 0 {
+	if list, _ := s.List(); list == nil || len(list) != 0 {
 		t.Fatalf("empty store should list [], got %v", list)
 	}
 
@@ -21,7 +21,7 @@ func TestAddGetListDelete(t *testing.T) {
 	if got, err := s.Get("a"); err != nil || got.ID != "a" {
 		t.Fatalf("Get(a) = %v, %v", got, err)
 	}
-	if list := s.List(); len(list) != 2 || list[0].ID != "a" {
+	if list, _ := s.List(); len(list) != 2 || list[0].ID != "a" {
 		t.Fatalf("List should be oldest first, got %v", list)
 	}
 	if err := s.Delete("a"); err != nil {
