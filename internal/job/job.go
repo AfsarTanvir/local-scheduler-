@@ -57,14 +57,16 @@ type Spec struct {
 type Status string
 
 const (
+	StatusRunning Status = "running" // only seen in run history, while in progress
 	StatusSuccess Status = "success"
 	StatusFailed  Status = "failed"
 )
 
 // Run is the result of executing a job once.
 type Run struct {
+	ID         int64     `json:"id,omitempty"`
 	StartedAt  time.Time `json:"startedAt"`
-	FinishedAt time.Time `json:"finishedAt"`
+	FinishedAt time.Time `json:"finishedAt,omitzero"` // empty while running
 	Status     Status    `json:"status"`
 	Output     string    `json:"output,omitempty"`
 	Error      string    `json:"error,omitempty"`

@@ -186,3 +186,69 @@ func TestTimeFormatSortsLikeTime(t *testing.T) {
 		t.Fatal("parse(format(t)) != t")
 	}
 }
+
+func TestRunHistory(t *testing.T) {
+	s, _ := openTemp(t)
+	j := fullJob(t)
+	j.LastRun = nil
+	j.Running = true
+	s.Add(j)
+
+	start := time.Date(2026, 10, 3, 12, 0, 0, 0, time.UTC)
+	runID, err := s.StartRun(j.ID, start)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	runs, err := s.Runs(j.ID, 10)
+	if err != nil || len(runs) != 1 || runs[0].Status != job.StatusRunning || !runs[0].FinishedAt.IsZero() {
+		t.Fatalf("while running: %+v, %v", runs, err)
+	}
+
+	result := job.Run{ID: runID, StartedAt: start, FinishedAt: start.Add(time.Second), Status: job.StatusSuccess, Output: "ok"}
+	if err := s.FinishRun(j.ID, result); err != nil {
+		t.Fatal(err)
+	}
+
+	runs, _ = s.Runs(j.ID, 10)
+	if len(runs) != 1 || !reflect.DeepEqual(runs[0], result) {
+		t.Fatalf("after finish: got %+v, want %+v", runs, result)
+	}
+	got, _ := s.Get(j.ID)
+	if got.Running || got.LastRun == nil || !reflect.DeepEqual(*got.LastRun, result) {
+		t.Fatalf("job not updated: %+v", got)
+	}
+
+	if _, err := s.Runs("missing", 10); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Runs of missing job: want ErrNotFound, got %v", err)
+	}
+}
+
+func TestRunHistoryIsLimited(t *testing.T) {
+	s, _ := openTemp(t)
+	s.Add(job.Job{ID: "a"})
+	for range keepRuns + 5 {
+		id, _ := s.StartRun("a", time.Now())
+		s.FinishRun("a", job.Run{ID: id, Status: job.StatusSuccess})
+	}
+	runs, _ := s.Runs("a", 1000)
+	if len(runs) != keepRuns {
+		t.Fatalf("want %d runs kept, got %d", keepRuns, len(runs))
+	}
+	if runs[0].ID != keepRuns+5 {
+		t.Fatalf("newest run should be kept first, got id %d", runs[0].ID)
+	}
+}
+
+func TestDeleteJobDeletesRuns(t *testing.T) {
+	s, _ := openTemp(t)
+	s.Add(job.Job{ID: "a"})
+	s.StartRun("a", time.Now())
+	s.Delete("a")
+
+	var count int
+	s.db.QueryRow(`SELECT COUNT(*) FROM runs`).Scan(&count)
+	if count != 0 {
+		t.Fatalf("runs of a deleted job should be deleted, %d left", count)
+	}
+}

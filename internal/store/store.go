@@ -18,6 +18,9 @@ import (
 
 var ErrNotFound = errors.New("job not found")
 
+// keepRuns is how many runs of each job are kept in the history.
+const keepRuns = 100
+
 type Store struct {
 	db *sql.DB
 }
@@ -31,7 +34,8 @@ func Open(path string) (*Store, error) {
 	// busy_timeout: wait up to 5 s instead of failing when another process
 	//               (for example the sqlite3 CLI) is holding a lock.
 	// journal_mode=WAL: readers do not block the writer, and the reverse.
-	db, err := sql.Open("sqlite", path+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)")
+	// foreign_keys: SQLite only enforces REFERENCES (and ON DELETE CASCADE) when this is on.
+	db, err := sql.Open("sqlite", path+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)")
 	if err != nil {
 		return nil, err
 	}
@@ -141,6 +145,88 @@ func (s *Store) Update(id string, fn func(*job.Job) error) (job.Job, error) {
 		return job.Job{}, err
 	}
 	return j, tx.Commit()
+}
+
+// StartRun records that a run of the job has started and returns the run's id.
+func (s *Store) StartRun(jobID string, startedAt time.Time) (int64, error) {
+	res, err := s.db.Exec(`INSERT INTO runs (job_id, started_at, status) VALUES (?, ?, ?)`,
+		jobID, formatTime(startedAt), job.StatusRunning)
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+// FinishRun saves the result of run r (r.ID from StartRun): it updates the
+// history row, sets the job's lastRun and running=false, and deletes old
+// history. All in one transaction, so they never disagree.
+func (s *Store) FinishRun(jobID string, r job.Run) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := finishRun(tx, jobID, r); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func finishRun(tx *sql.Tx, jobID string, r job.Run) error {
+	_, err := tx.Exec(`UPDATE runs SET started_at = ?, finished_at = ?, status = ?, output = ?, error = ?
+		WHERE id = ?`, formatTime(r.StartedAt), formatTime(r.FinishedAt), r.Status, r.Output, r.Error, r.ID)
+	if err != nil {
+		return err
+	}
+
+	lastRun, err := json.Marshal(r)
+	if err != nil {
+		return err
+	}
+	// If the job was deleted while running, this changes nothing.
+	if _, err := tx.Exec(`UPDATE jobs SET running = 0, last_run = ? WHERE id = ?`, string(lastRun), jobID); err != nil {
+		return err
+	}
+
+	// Keep only the newest runs, so the table does not grow forever.
+	_, err = tx.Exec(`DELETE FROM runs WHERE job_id = ? AND id NOT IN (
+		SELECT id FROM runs WHERE job_id = ? ORDER BY id DESC LIMIT ?)`, jobID, jobID, keepRuns)
+	return err
+}
+
+// Runs returns up to limit runs of a job, newest first.
+func (s *Store) Runs(jobID string, limit int) ([]job.Run, error) {
+	if _, err := s.Get(jobID); err != nil {
+		return nil, err
+	}
+	rows, err := s.db.Query(`SELECT id, started_at, finished_at, status, output, error FROM runs
+		WHERE job_id = ? ORDER BY id DESC LIMIT ?`, jobID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	runs := []job.Run{}
+	for rows.Next() {
+		var (
+			r          job.Run
+			startedAt  string
+			finishedAt sql.NullString
+		)
+		if err := rows.Scan(&r.ID, &startedAt, &finishedAt, &r.Status, &r.Output, &r.Error); err != nil {
+			return nil, err
+		}
+		if r.StartedAt, err = parseTime(startedAt); err != nil {
+			return nil, err
+		}
+		if finishedAt.Valid {
+			if r.FinishedAt, err = parseTime(finishedAt.String); err != nil {
+				return nil, err
+			}
+		}
+		runs = append(runs, r)
+	}
+	return runs, rows.Err()
 }
 
 // jobColumns is the column order used by jobValues and scanJob.

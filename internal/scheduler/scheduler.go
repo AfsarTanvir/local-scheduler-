@@ -144,24 +144,33 @@ func (s *Scheduler) RunNow(id string) (job.Job, error) {
 	return claimed, nil
 }
 
-// start runs j in a goroutine and saves the result when it finishes.
+// start runs j in a goroutine. It records the run in the history before
+// it starts and saves the result when it finishes.
 // The caller must hold s.mu and must have set j.Running.
 func (s *Scheduler) start(j job.Job) {
 	s.running.Add(1)
 	go func() {
 		defer s.running.Done()
-		slog.Info("job started", "job", j.ID, "name", j.Name)
+
+		runID, err := s.store.StartRun(j.ID, time.Now())
+		if err != nil {
+			// Don't run without a history row; free the job for its next run.
+			slog.Error("could not record run start", "job", j.ID, "err", err)
+			s.store.Update(j.ID, func(j *job.Job) error {
+				j.Running = false
+				return nil
+			})
+			return
+		}
+		slog.Info("job started", "job", j.ID, "name", j.Name, "run", runID)
 
 		result := s.run(s.ctx, j)
+		result.ID = runID
 
-		// Fails with ErrNotFound if the job was deleted while running;
-		// then there is nothing to save.
-		s.store.Update(j.ID, func(j *job.Job) error {
-			j.Running = false
-			j.LastRun = &result
-			return nil
-		})
-		slog.Info("job finished", "job", j.ID, "name", j.Name, "status", result.Status, "error", result.Error)
+		if err := s.store.FinishRun(j.ID, result); err != nil {
+			slog.Error("could not save run result", "job", j.ID, "run", runID, "err", err)
+		}
+		slog.Info("job finished", "job", j.ID, "name", j.Name, "run", runID, "status", result.Status, "error", result.Error)
 	}()
 }
 

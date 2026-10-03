@@ -22,6 +22,19 @@ var migrations = []string{
 		created_at  TEXT NOT NULL
 	);
 	CREATE INDEX jobs_next_run_at ON jobs (next_run_at);`,
+
+	// 2: run history. AUTOINCREMENT so ids are never reused after old runs
+	// are deleted. ON DELETE CASCADE removes a job's runs with the job.
+	`CREATE TABLE runs (
+		id          INTEGER PRIMARY KEY AUTOINCREMENT,
+		job_id      TEXT NOT NULL REFERENCES jobs (id) ON DELETE CASCADE,
+		started_at  TEXT NOT NULL,
+		finished_at TEXT,          -- NULL while running
+		status      TEXT NOT NULL, -- running, success or failed
+		output      TEXT NOT NULL DEFAULT '',
+		error       TEXT NOT NULL DEFAULT ''
+	);
+	CREATE INDEX runs_job_id ON runs (job_id, id);`,
 }
 
 func migrate(db *sql.DB) error {
