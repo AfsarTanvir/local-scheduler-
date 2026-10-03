@@ -1,0 +1,7 @@
+.git
+bin
+dist
+data
+DEVLOG.md
+*.md
+!README.md
