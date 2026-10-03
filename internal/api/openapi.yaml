@@ -107,6 +107,28 @@ paths:
         "204": { description: Deleted }
         "404": { $ref: "#/components/responses/Error" }
 
+  /jobs/{id}/runs:
+    parameters:
+      - $ref: "#/components/parameters/JobID"
+    get:
+      operationId: listRuns
+      summary: Run history of a job, newest first
+      description: The newest 100 runs of each job are kept.
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+      responses:
+        "200":
+          description: Runs, newest first
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Run" }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
   /jobs/{id}/run:
     parameters:
       - $ref: "#/components/parameters/JobID"
@@ -233,9 +255,13 @@ components:
     Run:
       type: object
       properties:
+        id: { type: integer, format: int64 }
         startedAt: { type: string, format: date-time }
-        finishedAt: { type: string, format: date-time }
-        status: { type: string, enum: [success, failed] }
+        finishedAt: { type: string, format: date-time, description: Missing while running }
+        status:
+          type: string
+          enum: [running, success, failed]
+          description: "`running` only appears in the run history while a run is in progress"
         output: { type: string, description: First 4 KB of the response body or command output }
         error: { type: string }
 
@@ -262,5 +288,5 @@ components:
           properties:
             code:
               type: string
-              enum: [invalid_json, invalid_job, shell_disabled, not_found, already_running, shutting_down, internal]
+              enum: [invalid_json, invalid_job, invalid_limit, shell_disabled, not_found, already_running, shutting_down, internal]
             message: { type: string }

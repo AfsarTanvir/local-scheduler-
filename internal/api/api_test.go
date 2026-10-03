@@ -192,3 +192,32 @@ func TestRunPauseResume(t *testing.T) {
 		t.Fatalf("pause missing: got %d", rec.Code)
 	}
 }
+
+func TestListRuns(t *testing.T) {
+	h, sched := newServer(t, false)
+	rec := do(t, h, "POST", "/jobs", validJob)
+	var created job.Job
+	json.Unmarshal(rec.Body.Bytes(), &created)
+	base := "/jobs/" + created.ID
+
+	if rec := do(t, h, "GET", base+"/runs", ""); rec.Code != http.StatusOK || strings.TrimSpace(rec.Body.String()) != "[]" {
+		t.Fatalf("no runs yet: got %d %s", rec.Code, rec.Body)
+	}
+
+	do(t, h, "POST", base+"/run", "")
+	sched.Stop(context.Background())
+
+	rec = do(t, h, "GET", base+"/runs?limit=5", "")
+	var runs []job.Run
+	json.Unmarshal(rec.Body.Bytes(), &runs)
+	if rec.Code != http.StatusOK || len(runs) != 1 || runs[0].Status != job.StatusSuccess || runs[0].ID == 0 {
+		t.Fatalf("after one run: got %d %s", rec.Code, rec.Body)
+	}
+
+	if rec := do(t, h, "GET", base+"/runs?limit=0", ""); rec.Code != http.StatusBadRequest || errorCode(t, rec) != "invalid_limit" {
+		t.Fatalf("bad limit: got %d %s", rec.Code, rec.Body)
+	}
+	if rec := do(t, h, "GET", "/jobs/missing/runs", ""); rec.Code != http.StatusNotFound {
+		t.Fatalf("missing job: got %d", rec.Code)
+	}
+}

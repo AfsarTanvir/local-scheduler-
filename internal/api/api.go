@@ -7,6 +7,7 @@ import (
 	_ "embed"
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/AfsarTanvir/local-scheduler-/internal/job"
@@ -40,6 +41,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /jobs", s.createJob)
 	mux.HandleFunc("GET /jobs", s.listJobs)
 	mux.HandleFunc("GET /jobs/{id}", s.getJob)
+	mux.HandleFunc("GET /jobs/{id}/runs", s.listRuns)
 	mux.HandleFunc("DELETE /jobs/{id}", s.deleteJob)
 	mux.HandleFunc("POST /jobs/{id}/run", s.runJob)
 	mux.HandleFunc("POST /jobs/{id}/pause", s.pauseJob)
@@ -103,6 +105,27 @@ func (s *Server) getJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, j)
+}
+
+// listRuns returns the job's run history, newest first.
+// ?limit=N (1 to 100, default 20) sets how many runs are returned.
+func (s *Server) listRuns(w http.ResponseWriter, r *http.Request) {
+	limit := 20
+	if v := r.URL.Query().Get("limit"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 || n > 100 {
+			writeError(w, http.StatusBadRequest, "invalid_limit", "limit must be a number from 1 to 100")
+			return
+		}
+		limit = n
+	}
+
+	runs, err := s.store.Runs(r.PathValue("id"), limit)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, runs)
 }
 
 func (s *Server) deleteJob(w http.ResponseWriter, r *http.Request) {
