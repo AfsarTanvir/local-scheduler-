@@ -26,6 +26,8 @@ func Run(ctx context.Context, j job.Job) job.Run {
 	switch j.Type {
 	case job.TypeHTTP:
 		output, err = runHTTP(ctx, j.HTTP)
+	case job.TypeShell:
+		output, err = runShell(ctx, j.Shell)
 	default:
 		err = fmt.Errorf("unknown job type %q", j.Type)
 	}

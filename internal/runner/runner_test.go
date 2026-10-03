@@ -91,3 +91,32 @@ func TestUnreachableURLFails(t *testing.T) {
 		t.Fatalf("want failure, got %+v", run)
 	}
 }
+
+func shellJob(command string) job.Job {
+	return job.Job{
+		ID: "test",
+		Spec: job.Spec{
+			Name:           "test",
+			Type:           job.TypeShell,
+			Shell:          &job.ShellTarget{Command: command},
+			TimeoutSeconds: 5,
+		},
+	}
+}
+
+func TestShellSuccess(t *testing.T) {
+	run := Run(context.Background(), shellJob("echo hello"))
+	if run.Status != job.StatusSuccess || strings.TrimSpace(run.Output) != "hello" {
+		t.Fatalf("want success with output hello, got %+v", run)
+	}
+}
+
+func TestShellExitCodeFails(t *testing.T) {
+	run := Run(context.Background(), shellJob("echo oops && exit 3"))
+	if run.Status != job.StatusFailed || run.Error != "exit status 3" {
+		t.Fatalf("want failure with exit status 3, got %+v", run)
+	}
+	if !strings.Contains(run.Output, "oops") {
+		t.Fatalf("output of a failed command should be kept, got %q", run.Output)
+	}
+}
