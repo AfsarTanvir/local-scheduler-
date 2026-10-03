@@ -6,7 +6,7 @@ A containerized job scheduler built step by step, published as `afsartanvir/loca
 
 **Anyone can use it, from any language**
 - The only interface is a plain **HTTP + JSON REST API**. Anything that can send an HTTP request can use it (curl, Python, Node, Java, .NET, PHP, Go, Postman, ...).
-- Publish an **OpenAPI spec** (`/openapi.json`) so people can generate a client in their language.
+- Publish an **OpenAPI spec** (`/openapi.yaml`) so people can generate a client in their language.
 - The main job type is **`http`** (call a URL), so the scheduler can trigger a service written in any language.
 - Results can be sent back to the caller with an optional **webhook** (`onSuccess` / `onFailure` URL).
 
@@ -38,14 +38,16 @@ Don't start a step until the previous step's "Done when" is true.
 
 ## Step 0 — Setup (1 day)
 
-- [ ] Choose a language: **Go** (recommended, see above) or **.NET** (self-contained publish)
-- [ ] Install Go: https://go.dev/doc/install, then do the "Tour of Go" (https://go.dev/tour)
-- [ ] `git init`, add `.gitignore` and `README.md`
-- [ ] Create a GitHub repo `local-scheduler` and push
+- [x] Choose a language: **Go** (recommended, see above) or **.NET** (self-contained publish)
+- [x] Install Go (installed in `~/.local/go`)
+- [ ] Do the "Tour of Go" (https://go.dev/tour)
+- [x] `git init`, add `.gitignore` and `README.md`
+- [x] Create a GitHub repo
+- [ ] Push to GitHub
 - [ ] Create a Docker Hub account (`afsartanvir`)
-- [ ] Create the project skeleton with a `GET /health` endpoint
-- [ ] Write a simple `Dockerfile`
-- [ ] Create `docs/decisions/001-language-choice.md`
+- [x] Create the project skeleton with a `GET /health` endpoint
+- [x] Write a simple `Dockerfile`
+- [x] Create `docs/decisions/001-language-choice.md`
 
 **Done when:** `docker build -t local-scheduler . && docker run -p 8080:8080 local-scheduler` serves `/health`.
 
@@ -60,16 +62,16 @@ Don't start a step until the previous step's "Done when" is true.
 - What does graceful shutdown mean (SIGTERM, letting running jobs finish)?
 
 **Build**
-- [ ] Job model: `id`, `name`, `schedule`, `timezone`, `type` (`http` | `shell`), `target`, `enabled`
-- [ ] HTTP job options: `method`, `headers`, `body`, expected status codes
-- [ ] Consistent JSON errors: `{ "error": { "code": "...", "message": "..." } }`
-- [ ] `GET /openapi.json` describing the whole API
-- [ ] `POST /jobs`, `GET /jobs`, `GET /jobs/{id}`, `DELETE /jobs/{id}`
-- [ ] `POST /jobs/{id}/run` (run now), `POST /jobs/{id}/pause`, `POST /jobs/{id}/resume`
-- [ ] Scheduler loop that triggers due jobs
-- [ ] HTTP executor and shell executor
-- [ ] Per-job timeout
-- [ ] Graceful shutdown
+- [x] Job model: `id`, `name`, `schedule` (cron) **or** `runAt` (one-time), `timezone`, `type` + `http` / `shell` object, `enabled`
+- [x] HTTP job options: `method`, `headers`, `body` (any 2xx is success)
+- [x] Consistent JSON errors: `{ "error": { "code": "...", "message": "..." } }`
+- [x] `GET /openapi.yaml` describing the whole API
+- [x] `POST /jobs`, `GET /jobs`, `GET /jobs/{id}`, `DELETE /jobs/{id}`
+- [x] `POST /jobs/{id}/run` (run now), `POST /jobs/{id}/pause`, `POST /jobs/{id}/resume`
+- [x] Scheduler loop that triggers due jobs
+- [x] HTTP executor and shell executor
+- [x] Per-job timeout
+- [x] Graceful shutdown
 
 **Done when:** a job runs every minute, and `docker stop` waits for a running job to finish.
 
@@ -113,7 +115,7 @@ Don't start a step until the previous step's "Done when" is true.
 
 ## Step 4 — Publish to Docker Hub (2–3 days) → `v1.0`
 
-- [ ] Multi-stage `Dockerfile` (small image, non-root user)
+- [x] Multi-stage `Dockerfile` (small image, non-root user)
 - [ ] `HEALTHCHECK` using `/health`
 - [ ] Configuration via environment variables (port, DB connection, log level)
 - [ ] `docker-compose.yml` example in the README
