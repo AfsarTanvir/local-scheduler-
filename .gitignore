@@ -1,0 +1,18 @@
+# Personal development log: explains every change, kept local only
+DEVLOG.md
+
+# Build output
+/bin/
+/dist/
+*.exe
+
+# Local data (SQLite files, from roadmap Step 2)
+/data/
+
+# Environment files (may contain secrets)
+.env
+
+# Editor and OS files
+.vscode/
+.idea/
+.DS_Store
