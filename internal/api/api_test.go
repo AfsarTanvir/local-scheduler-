@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -25,11 +26,22 @@ func fakeRun(ctx context.Context, j job.Job) job.Run {
 	return job.Run{Status: job.StatusSuccess}
 }
 
+// openStore opens a database in a temporary directory that is deleted after the test.
+func openStore(t *testing.T) *store.Store {
+	t.Helper()
+	st, err := store.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	return st
+}
+
 // newServer returns a server whose scheduler loop is not started,
 // so jobs only run when the test asks for it.
 func newServer(t *testing.T, allowShell bool) (http.Handler, *scheduler.Scheduler) {
 	t.Helper()
-	st := store.New()
+	st := openStore(t)
 	sched := scheduler.New(st, fakeRun)
 	return New(st, sched, allowShell).Handler(), sched
 }

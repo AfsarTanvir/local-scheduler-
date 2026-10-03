@@ -3,6 +3,7 @@ package scheduler
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -32,9 +33,20 @@ func (f *fakeRunner) run(ctx context.Context, j job.Job) job.Run {
 
 func setup(t *testing.T) (*Scheduler, *store.Store, *fakeRunner) {
 	t.Helper()
-	st := store.New()
+	st := openStore(t)
 	f := &fakeRunner{}
 	return New(st, f.run), st, f
+}
+
+// openStore opens a database in a temporary directory that is deleted after the test.
+func openStore(t *testing.T) *store.Store {
+	t.Helper()
+	st, err := store.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	return st
 }
 
 // addJob creates a job at now. A non-empty schedule makes a repeating job,

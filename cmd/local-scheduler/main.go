@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 	_ "time/tzdata" // embed timezone data, so job timezones work on Windows and in small images
@@ -23,13 +24,21 @@ const shutdownTimeout = 30 * time.Second
 
 func main() {
 	port := getenv("PORT", "8080")
+	dbPath := getenv("DB_PATH", filepath.Join("data", "scheduler.db"))
 	allowShell := os.Getenv("ALLOW_SHELL_JOBS") == "true"
 	if allowShell {
 		slog.Warn("shell jobs are enabled: anyone who can reach the API can run commands on this machine")
 	}
 
+	st, err := store.Open(dbPath)
+	if err != nil {
+		slog.Error("cannot open database", "path", dbPath, "err", err)
+		os.Exit(1)
+	}
+	defer st.Close()
+	slog.Info("database opened", "path", dbPath)
+
 	// Wire the parts together: the API and the scheduler share one store.
-	st := store.New()
 	sched := scheduler.New(st, runner.Run)
 	srv := &http.Server{
 		Addr:              ":" + port,
