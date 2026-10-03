@@ -131,6 +131,30 @@ func TestUpdateSavesOnlyOnSuccess(t *testing.T) {
 	}
 }
 
+func TestDue(t *testing.T) {
+	s, _ := openTemp(t)
+	now := time.Date(2026, 10, 3, 12, 0, 0, 0, time.UTC)
+	past, future := now.Add(-time.Minute), now.Add(time.Minute)
+
+	s.Add(job.Job{ID: "due", Enabled: true, NextRunAt: &past})
+	s.Add(job.Job{ID: "due-exactly-now", Enabled: true, NextRunAt: &now})
+	s.Add(job.Job{ID: "future", Enabled: true, NextRunAt: &future})
+	s.Add(job.Job{ID: "paused", Enabled: false, NextRunAt: &past})
+	s.Add(job.Job{ID: "finished", Enabled: true, NextRunAt: nil})
+
+	due, err := s.Due(now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ids []string
+	for _, j := range due {
+		ids = append(ids, j.ID)
+	}
+	if want := []string{"due", "due-exactly-now"}; !reflect.DeepEqual(ids, want) {
+		t.Fatalf("Due = %v, want %v", ids, want)
+	}
+}
+
 func TestJobsSurviveReopen(t *testing.T) {
 	s, path := openTemp(t)
 	want := fullJob(t)

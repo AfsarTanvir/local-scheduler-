@@ -69,7 +69,22 @@ func (s *Store) Get(id string) (job.Job, error) {
 // List returns all jobs, oldest first. It never returns nil,
 // so an empty list is encoded as [] in JSON.
 func (s *Store) List() ([]job.Job, error) {
-	rows, err := s.db.Query(`SELECT ` + jobColumns + ` FROM jobs ORDER BY created_at, id`)
+	return s.queryJobs(`SELECT ` + jobColumns + ` FROM jobs ORDER BY created_at, id`)
+}
+
+// Due returns the enabled jobs whose next run time is at or before now.
+// The index on next_run_at keeps this fast with many jobs.
+func (s *Store) Due(now time.Time) ([]job.Job, error) {
+	return s.queryJobs(`SELECT `+jobColumns+` FROM jobs
+		WHERE enabled = 1 AND next_run_at <= ?
+		ORDER BY next_run_at`, formatTime(now))
+}
+
+// queryJobs runs a query that selects jobColumns and reads all rows.
+// Rows are read completely before returning, which matters with a
+// single connection: an open result would block every other call.
+func (s *Store) queryJobs(query string, args ...any) ([]job.Job, error) {
+	rows, err := s.db.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}

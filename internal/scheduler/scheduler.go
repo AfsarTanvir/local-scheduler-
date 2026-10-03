@@ -82,19 +82,16 @@ func (s *Scheduler) tick(now time.Time) {
 		return
 	}
 
-	jobs, err := s.store.List()
+	jobs, err := s.store.Due(now)
 	if err != nil {
-		slog.Error("list jobs failed", "err", err)
+		slog.Error("loading due jobs failed", "err", err)
 		return
 	}
 	for _, j := range jobs {
-		if !isDue(j, now) {
-			continue
-		}
 		start := false
 		claimed, err := s.store.Update(j.ID, func(j *job.Job) error {
-			// Check again under the store's lock: the job may have been
-			// paused, deleted or started since List.
+			// Check again inside the transaction: the job may have been
+			// paused, deleted or started since Due.
 			if !isDue(*j, now) {
 				return errNotDue
 			}
