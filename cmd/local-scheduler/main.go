@@ -38,6 +38,17 @@ func main() {
 	defer st.Close()
 	slog.Info("database opened", "path", dbPath)
 
+	// Runs that were in progress when the process last died can't still be
+	// running. Mark them failed, so their jobs are free to run again.
+	n, err := st.RecoverInterrupted(time.Now())
+	if err != nil {
+		slog.Error("crash recovery failed", "err", err)
+		os.Exit(1)
+	}
+	if n > 0 {
+		slog.Warn("marked runs interrupted by the last shutdown as failed", "count", n)
+	}
+
 	// Wire the parts together: the API and the scheduler share one store.
 	sched := scheduler.New(st, runner.Run)
 	srv := &http.Server{

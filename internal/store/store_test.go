@@ -4,6 +4,7 @@ import (
 	"errors"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -250,5 +251,36 @@ func TestDeleteJobDeletesRuns(t *testing.T) {
 	s.db.QueryRow(`SELECT COUNT(*) FROM runs`).Scan(&count)
 	if count != 0 {
 		t.Fatalf("runs of a deleted job should be deleted, %d left", count)
+	}
+}
+
+func TestRecoverInterrupted(t *testing.T) {
+	s, _ := openTemp(t)
+	start := time.Date(2026, 10, 3, 12, 0, 0, 0, time.UTC)
+
+	// "a" crashed during a run; "b" crashed after being claimed, before StartRun.
+	s.Add(job.Job{ID: "a", Running: true})
+	s.Add(job.Job{ID: "b", Running: true})
+	runID, _ := s.StartRun("a", start)
+
+	now := start.Add(time.Minute)
+	n, err := s.RecoverInterrupted(now)
+	if err != nil || n != 1 {
+		t.Fatalf("RecoverInterrupted = %d, %v; want 1, nil", n, err)
+	}
+
+	runs, _ := s.Runs("a", 10)
+	if len(runs) != 1 || runs[0].ID != runID || runs[0].Status != job.StatusFailed ||
+		!runs[0].FinishedAt.Equal(now) || !strings.Contains(runs[0].Error, "interrupted") {
+		t.Fatalf("interrupted run not marked failed: %+v", runs)
+	}
+	a, _ := s.Get("a")
+	b, _ := s.Get("b")
+	if a.Running || b.Running || a.LastRun == nil || a.LastRun.Status != job.StatusFailed {
+		t.Fatalf("jobs not freed: a=%+v b=%+v", a, b)
+	}
+
+	if n, _ := s.RecoverInterrupted(now); n != 0 {
+		t.Fatalf("second call should find nothing, found %d", n)
 	}
 }

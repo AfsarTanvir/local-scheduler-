@@ -194,6 +194,61 @@ func finishRun(tx *sql.Tx, jobID string, r job.Run) error {
 	return err
 }
 
+// RecoverInterrupted cleans up after a crash and must be called before the
+// scheduler starts. Nothing can be running yet at that point, so runs still
+// marked "running" were interrupted: they are marked failed. Jobs still
+// marked running are freed so their next run can start.
+// It returns the number of interrupted runs.
+func (s *Store) RecoverInterrupted(now time.Time) (int, error) {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+
+	type interrupted struct {
+		jobID string
+		run   job.Run
+	}
+	var list []interrupted
+	rows, err := tx.Query(`SELECT id, job_id, started_at FROM runs WHERE status = ?`, job.StatusRunning)
+	if err != nil {
+		return 0, err
+	}
+	for rows.Next() {
+		var it interrupted
+		var startedAt string
+		if err := rows.Scan(&it.run.ID, &it.jobID, &startedAt); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		if it.run.StartedAt, err = parseTime(startedAt); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		list = append(list, it)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+
+	for _, it := range list {
+		it.run.FinishedAt = now
+		it.run.Status = job.StatusFailed
+		it.run.Error = "interrupted: the scheduler stopped while this job was running"
+		if err := finishRun(tx, it.jobID, it.run); err != nil {
+			return 0, err
+		}
+	}
+	// A job can be marked running without a run row if the crash came
+	// between claiming it and StartRun.
+	if _, err := tx.Exec(`UPDATE jobs SET running = 0 WHERE running = 1`); err != nil {
+		return 0, err
+	}
+	return len(list), tx.Commit()
+}
+
 // Runs returns up to limit runs of a job, newest first.
 func (s *Store) Runs(jobID string, limit int) ([]job.Run, error) {
 	if _, err := s.Get(jobID); err != nil {
