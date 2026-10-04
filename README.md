@@ -226,4 +226,9 @@ docs/decisions/        why things are built the way they are
 go test ./...          # run all tests
 go vet ./...           # static checks
 gofmt -l .             # list badly formatted files (should print nothing)
+./scripts/e2e/run.sh   # end-to-end test against the real binary (~40 s, needs curl and python3)
 ```
+
+The end-to-end test starts the real server with a fake API next to it and checks
+the behavior from the outside: scheduling, failures and timeouts, pause/resume,
+restarts, graceful shutdown, recovery after `kill -9`, and memory use.
