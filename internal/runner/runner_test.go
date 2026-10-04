@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -118,5 +119,32 @@ func TestShellExitCodeFails(t *testing.T) {
 	}
 	if !strings.Contains(run.Output, "oops") {
 		t.Fatalf("output of a failed command should be kept, got %q", run.Output)
+	}
+}
+
+func TestLimitedBufferKeepsOnlyTheStart(t *testing.T) {
+	b := &limitedBuffer{limit: 5}
+	for _, chunk := range []string{"abc", "defg", "hij"} {
+		if n, err := b.Write([]byte(chunk)); n != len(chunk) || err != nil {
+			t.Fatalf("Write(%q) = %d, %v; want %d, nil", chunk, n, err, len(chunk))
+		}
+	}
+	if got := b.buf.String(); got != "abcde" {
+		t.Fatalf("kept %q, want %q", got, "abcde")
+	}
+}
+
+func TestShellLargeOutputIsCut(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses head and tr")
+	}
+	// 1 MB of output: only the first maxOutput bytes may be kept.
+	run := Run(context.Background(), shellJob(`head -c 1000000 /dev/zero | tr '\0' a`))
+	if run.Status != job.StatusSuccess {
+		t.Fatalf("want success, got %+v", run.Error)
+	}
+	want := strings.Repeat("a", maxOutput) + "\n...(truncated)"
+	if run.Output != want {
+		t.Fatalf("output has %d bytes, want the first %d bytes plus the truncated marker", len(run.Output), maxOutput)
 	}
 }
