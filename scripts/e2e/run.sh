@@ -177,6 +177,17 @@ done
 check "200 MB of output: server stays under 100 MB ($((PEAK / 1024)) MB)" test "$PEAK" -lt 102400
 check "only the start of the output is kept" eq "$(curl -s "$API/jobs/$BIG" | json 'd["lastRun"]["output"].endswith("(truncated)")')" True
 
+echo "--- API key"
+stop_server -TERM
+export API_KEY=e2e-secret
+start_server
+check "with API_KEY: /health is still public" eq "$(status "$API/health")" 200
+check "with API_KEY: no key → 401" eq "$(status "$API/jobs")" 401
+check "with API_KEY: wrong key → 401" eq "$(status -H "Authorization: Bearer nope" "$API/jobs")" 401
+check "with API_KEY: right key → 200" eq "$(status -H "Authorization: Bearer $API_KEY" "$API/jobs")" 200
+check "with API_KEY: jobs still run" test "$(curl -s -H "Authorization: Bearer $API_KEY" "$API/jobs/$EVERY/runs?limit=1" | json 'len(d)')" -eq 1
+unset API_KEY
+
 stop_server -TERM
 echo
 echo "RESULT: $PASS passed, $FAIL failed"
