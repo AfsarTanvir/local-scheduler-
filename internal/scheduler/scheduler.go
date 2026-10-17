@@ -21,6 +21,7 @@ var (
 	ErrStopped        = errors.New("scheduler is shutting down")
 
 	errNotDue = errors.New("job is not due")
+	errBusy   = errors.New("job is due but its previous run is still in progress")
 )
 
 // tickInterval is how often the scheduler checks for due jobs.
@@ -95,12 +96,19 @@ func (s *Scheduler) tick(now time.Time) {
 			if !isDue(*j, now) {
 				return errNotDue
 			}
-			j.NextRunAt = j.NextRun(now)
 			if j.Running {
+				if j.IsOneTime() {
+					// A one-time job has no later run to fall back on. Keep
+					// its time and start once the current run (e.g. a "run
+					// now") has ended, instead of losing the run.
+					return errBusy
+				}
 				// The previous run is still going. Skip this run
 				// instead of running the same job twice at once.
+				j.NextRunAt = j.NextRun(now)
 				return nil
 			}
+			j.NextRunAt = j.NextRun(now)
 			j.Running = true
 			start = true
 			return nil

@@ -193,6 +193,7 @@ The full description is in [internal/api/openapi.yaml](internal/api/openapi.yaml
 ### Rules
 
 - **No overlap:** if a job is still running when its next run is due, that run is skipped.
+  A one-time job has only that run, so it waits for the running one (e.g. a "run now") to finish instead.
 - **Missed runs** (paused, machine asleep) turn into one catch-up run, then the normal schedule continues.
 - **Shutdown** (`Ctrl+C` / `docker stop`): no new runs start; running jobs get 30 seconds to finish.
 - **Crash** (`kill -9`, power loss): on the next start, runs that were in progress are marked `failed`

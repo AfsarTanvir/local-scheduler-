@@ -142,6 +142,39 @@ func TestDoesNotOverlapRuns(t *testing.T) {
 	}
 }
 
+func TestOneTimeJobWaitsForRunningRun(t *testing.T) {
+	s, st, f := setup(t)
+	f.block = make(chan struct{})
+	now := time.Date(2026, 10, 3, 12, 0, 0, 0, time.UTC)
+	due := now.Add(time.Minute)
+	j := addJob(t, st, now, "", due)
+
+	if _, err := s.RunNow(j.ID); err != nil { // a manual run that is still going at the due time
+		t.Fatal(err)
+	}
+	s.tick(due)
+
+	got, _ := st.Get(j.ID)
+	if got.NextRunAt == nil || !got.NextRunAt.Equal(due) {
+		t.Fatalf("one-time run was dropped while another run was in progress: NextRunAt %v", got.NextRunAt)
+	}
+
+	close(f.block)
+	for i := 0; i < 100; i++ { // the manual run finishes in the background
+		if got, _ = st.Get(j.ID); !got.Running {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	s.tick(due.Add(time.Second))
+	wait(t, s)
+
+	got, _ = st.Get(j.ID)
+	if calls := f.calls.Load(); calls != 2 || got.NextRunAt != nil {
+		t.Fatalf("want the manual run and the scheduled run (2), got %d runs, NextRunAt %v", calls, got.NextRunAt)
+	}
+}
+
 func TestPausedJobDoesNotRun(t *testing.T) {
 	s, st, f := setup(t)
 	now := time.Now()
