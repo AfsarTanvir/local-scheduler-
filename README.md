@@ -53,6 +53,7 @@ services:
     volumes:
       - scheduler-data:/app/data
     # environment:
+    #   API_KEY: "change-me"
     #   ALLOW_SHELL_JOBS: "true"
 
 volumes:
@@ -168,6 +169,17 @@ print(job["id"], job["nextRunAt"])
 | `POST` | `/jobs/{id}/pause` | Pause |
 | `POST` | `/jobs/{id}/resume` | Resume |
 
+**API key.** If the server is started with `API_KEY`, every `/jobs` route needs it:
+
+```bash
+API_KEY=change-me go run ./cmd/local-scheduler
+curl localhost:8080/jobs -H "Authorization: Bearer change-me"
+```
+
+Without the header the answer is `401` with code `unauthorized`. `/health` and
+`/openapi.yaml` stay public so health checks keep working. Without `API_KEY` the
+API is open, which is fine when only your machine can reach it.
+
 Errors always have the same shape:
 
 ```json
@@ -207,6 +219,7 @@ Why these rules: [docs/decisions/](docs/decisions/).
 |---|---|---|
 | `PORT` | `8080` | HTTP port |
 | `DB_PATH` | `data/scheduler.db` (`/app/data/scheduler.db` in Docker) | SQLite database file. Created if missing |
+| `API_KEY` | (none) | When set, every `/jobs` route needs `Authorization: Bearer <API_KEY>`. Set it whenever other machines can reach the port |
 | `ALLOW_SHELL_JOBS` | `false` | Set to `true` to allow shell jobs. They run commands on this machine, so only enable this when the API is not reachable by others |
 
 ## Project structure

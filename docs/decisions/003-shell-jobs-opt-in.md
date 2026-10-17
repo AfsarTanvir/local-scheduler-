@@ -19,4 +19,4 @@ HTTP jobs, the main feature, always work.
 
 ## Consequences
 - Safe by default; one environment variable to opt in.
-- Later (roadmap Step 7) an API key adds protection for the whole API.
+- An optional API key protects the whole API (`API_KEY`, see `006-api-key.md`).

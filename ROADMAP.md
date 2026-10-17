@@ -168,6 +168,7 @@ Don't start a step until the previous step's "Done when" is true.
 
 ## Step 7 — Optional extras
 
+- [x] Optional API key (`API_KEY`, bearer token; `/health` stays public). See `docs/decisions/006-api-key.md`
 - [ ] Web dashboard (jobs, history, run now)
 - [ ] Prometheus metrics (`/metrics`)
 - [ ] Structured JSON logs
