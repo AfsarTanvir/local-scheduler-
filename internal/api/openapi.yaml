@@ -8,17 +8,24 @@ info:
 
     All times are RFC 3339, returned in UTC. Errors always look like
     `{"error": {"code": "...", "message": "..."}}`.
+
+    When the server is started with `API_KEY`, every `/jobs` route needs the
+    header `Authorization: Bearer <API_KEY>`; without it the answer is
+    `401 unauthorized`. `/health` and `/openapi.yaml` are always public.
 servers:
   - url: http://localhost:8080
 
-# No authentication yet (roadmap Step 7 adds an API key).
-security: []
+# The key is optional: "{}" = no key (API_KEY not set), or a bearer token.
+security:
+  - {}
+  - apiKey: []
 
 paths:
   /health:
     get:
       operationId: health
       summary: Check that the service is up
+      security: []
       responses:
         "200":
           description: Service is up
@@ -176,6 +183,12 @@ paths:
         "404": { $ref: "#/components/responses/Error" }
 
 components:
+  securitySchemes:
+    apiKey:
+      type: http
+      scheme: bearer
+      description: The value of the server's API_KEY environment variable.
+
   parameters:
     JobID:
       name: id
@@ -288,5 +301,5 @@ components:
           properties:
             code:
               type: string
-              enum: [invalid_json, invalid_job, invalid_limit, shell_disabled, not_found, already_running, shutting_down, internal]
+              enum: [invalid_json, invalid_job, invalid_limit, unauthorized, shell_disabled, not_found, already_running, shutting_down, internal]
             message: { type: string }
