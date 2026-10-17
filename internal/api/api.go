@@ -4,10 +4,13 @@
 package api
 
 import (
+	"crypto/sha256"
+	"crypto/subtle"
 	_ "embed"
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/AfsarTanvir/local-scheduler-/internal/job"
@@ -26,27 +29,55 @@ const maxBodyBytes = 1 << 20 // 1 MB
 type Server struct {
 	store      *store.Store
 	sched      *scheduler.Scheduler
-	allowShell bool // shell jobs run commands on this machine, so they are opt-in
+	allowShell bool   // shell jobs run commands on this machine, so they are opt-in
+	apiKey     string // when set, every route except /health and /openapi.yaml needs it
 }
 
-func New(st *store.Store, sched *scheduler.Scheduler, allowShell bool) *Server {
-	return &Server{store: st, sched: sched, allowShell: allowShell}
+// New returns the API. An empty apiKey leaves the API open, which is fine
+// when only this machine can reach it.
+func New(st *store.Store, sched *scheduler.Scheduler, allowShell bool, apiKey string) *Server {
+	return &Server{store: st, sched: sched, allowShell: allowShell, apiKey: apiKey}
 }
 
 // Handler returns all routes. Method and {id} patterns need Go 1.22+.
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
+	// Public: health checks (Docker, load balancers) and the API description.
 	mux.HandleFunc("GET /health", s.health)
 	mux.HandleFunc("GET /openapi.yaml", s.openAPI)
-	mux.HandleFunc("POST /jobs", s.createJob)
-	mux.HandleFunc("GET /jobs", s.listJobs)
-	mux.HandleFunc("GET /jobs/{id}", s.getJob)
-	mux.HandleFunc("GET /jobs/{id}/runs", s.listRuns)
-	mux.HandleFunc("DELETE /jobs/{id}", s.deleteJob)
-	mux.HandleFunc("POST /jobs/{id}/run", s.runJob)
-	mux.HandleFunc("POST /jobs/{id}/pause", s.pauseJob)
-	mux.HandleFunc("POST /jobs/{id}/resume", s.resumeJob)
+
+	mux.HandleFunc("POST /jobs", s.requireKey(s.createJob))
+	mux.HandleFunc("GET /jobs", s.requireKey(s.listJobs))
+	mux.HandleFunc("GET /jobs/{id}", s.requireKey(s.getJob))
+	mux.HandleFunc("GET /jobs/{id}/runs", s.requireKey(s.listRuns))
+	mux.HandleFunc("DELETE /jobs/{id}", s.requireKey(s.deleteJob))
+	mux.HandleFunc("POST /jobs/{id}/run", s.requireKey(s.runJob))
+	mux.HandleFunc("POST /jobs/{id}/pause", s.requireKey(s.pauseJob))
+	mux.HandleFunc("POST /jobs/{id}/resume", s.requireKey(s.resumeJob))
 	return mux
+}
+
+// requireKey lets a request through only if it sends "Authorization: Bearer <apiKey>".
+// With no key configured, every request is let through.
+func (s *Server) requireKey(next http.HandlerFunc) http.HandlerFunc {
+	if s.apiKey == "" {
+		return next
+	}
+	// Compare hashes, not the strings: equal-length inputs make the
+	// constant-time compare hide the key's length too.
+	want := sha256.Sum256([]byte(s.apiKey))
+	return func(w http.ResponseWriter, r *http.Request) {
+		// The scheme name is case-insensitive (RFC 7235): "bearer" works too.
+		scheme, key, _ := strings.Cut(r.Header.Get("Authorization"), " ")
+		got := sha256.Sum256([]byte(key))
+		if !strings.EqualFold(scheme, "Bearer") || subtle.ConstantTimeCompare(got[:], want[:]) != 1 {
+			w.Header().Set("WWW-Authenticate", `Bearer realm="local-scheduler"`)
+			writeError(w, http.StatusUnauthorized, "unauthorized",
+				"missing or wrong API key; send the header Authorization: Bearer <API_KEY>")
+			return
+		}
+		next(w, r)
+	}
 }
 
 func (s *Server) health(w http.ResponseWriter, r *http.Request) {

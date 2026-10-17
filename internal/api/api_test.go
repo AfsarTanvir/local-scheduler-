@@ -43,7 +43,7 @@ func newServer(t *testing.T, allowShell bool) (http.Handler, *scheduler.Schedule
 	t.Helper()
 	st := openStore(t)
 	sched := scheduler.New(st, fakeRun)
-	return New(st, sched, allowShell).Handler(), sched
+	return New(st, sched, allowShell, "").Handler(), sched
 }
 
 func newTestServer(t *testing.T) http.Handler {
@@ -219,5 +219,67 @@ func TestListRuns(t *testing.T) {
 	}
 	if rec := do(t, h, "GET", "/jobs/missing/runs", ""); rec.Code != http.StatusNotFound {
 		t.Fatalf("missing job: got %d", rec.Code)
+	}
+}
+
+func TestAPIKey(t *testing.T) {
+	st := openStore(t)
+	h := New(st, scheduler.New(st, fakeRun), false, "s3cret").Handler()
+
+	send := func(method, path, auth, body string) *httptest.ResponseRecorder {
+		t.Helper()
+		req := httptest.NewRequest(method, path, strings.NewReader(body))
+		if auth != "" {
+			req.Header.Set("Authorization", auth)
+		}
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec
+	}
+
+	tests := []struct {
+		name     string
+		method   string
+		path     string
+		auth     string
+		wantCode int
+	}{
+		{"health is public", "GET", "/health", "", http.StatusOK},
+		{"openapi is public", "GET", "/openapi.yaml", "", http.StatusOK},
+		{"no key", "GET", "/jobs", "", http.StatusUnauthorized},
+		{"wrong key", "GET", "/jobs", "Bearer nope", http.StatusUnauthorized},
+		{"key without Bearer", "GET", "/jobs", "s3cret", http.StatusUnauthorized},
+		{"right key", "GET", "/jobs", "Bearer s3cret", http.StatusOK},
+		{"scheme is case-insensitive", "GET", "/jobs", "bearer s3cret", http.StatusOK},
+		{"key is case-sensitive", "GET", "/jobs", "Bearer S3CRET", http.StatusUnauthorized},
+		{"empty key after Bearer", "GET", "/jobs", "Bearer ", http.StatusUnauthorized},
+		{"every job route is protected", "POST", "/jobs/x/pause", "", http.StatusUnauthorized},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := send(tt.method, tt.path, tt.auth, "")
+			if rec.Code != tt.wantCode {
+				t.Fatalf("got %d %s, want %d", rec.Code, rec.Body, tt.wantCode)
+			}
+			if rec.Code == http.StatusUnauthorized {
+				if errorCode(t, rec) != "unauthorized" || rec.Header().Get("WWW-Authenticate") == "" {
+					t.Fatalf("unexpected 401: %v %s", rec.Header(), rec.Body)
+				}
+			}
+		})
+	}
+
+	// A rejected request must not change anything.
+	if rec := send("POST", "/jobs", "", validJob); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("create without key: got %d", rec.Code)
+	}
+	if rec := send("POST", "/jobs", "Bearer s3cret", validJob); rec.Code != http.StatusCreated {
+		t.Fatalf("create with key: got %d %s", rec.Code, rec.Body)
+	}
+	rec := send("GET", "/jobs", "Bearer s3cret", "")
+	var list []job.Job
+	json.Unmarshal(rec.Body.Bytes(), &list)
+	if len(list) != 1 {
+		t.Fatalf("want 1 job, got %s", rec.Body)
 	}
 }

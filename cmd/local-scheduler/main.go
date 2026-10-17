@@ -26,8 +26,12 @@ func main() {
 	port := getenv("PORT", "8080")
 	dbPath := getenv("DB_PATH", filepath.Join("data", "scheduler.db"))
 	allowShell := os.Getenv("ALLOW_SHELL_JOBS") == "true"
+	apiKey := os.Getenv("API_KEY")
+	if apiKey == "" {
+		slog.Info("API_KEY is not set: anyone who can reach the API can manage jobs")
+	}
 	if allowShell {
-		slog.Warn("shell jobs are enabled: anyone who can reach the API can run commands on this machine")
+		slog.Warn("shell jobs are enabled: anyone who can manage jobs can run commands on this machine")
 	}
 
 	st, err := store.Open(dbPath)
@@ -53,7 +57,7 @@ func main() {
 	sched := scheduler.New(st, runner.Run)
 	srv := &http.Server{
 		Addr:              ":" + port,
-		Handler:           api.New(st, sched, allowShell).Handler(),
+		Handler:           api.New(st, sched, allowShell, apiKey).Handler(),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
